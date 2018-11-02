@@ -1,6 +1,6 @@
 #!/bin/bash
 
-rootDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+declare -r rootDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 function execCmd() {
     
@@ -9,6 +9,8 @@ function execCmd() {
     else
         echoExec "${1}"
         eval $1
+        rt=$?
+        [[ ${rt} != 0 ]] && exit
     fi
 }
 
