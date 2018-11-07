@@ -14,6 +14,19 @@ function execCmd() {
     fi
 }
 
+function rmFile() {
+    execCmd "rm '${1}'"
+}
+
+function mvFile() {
+    chkDir "$(dirname "${2}")"
+    execCmd "mv '${1}' '${2}'"
+}
+
+function chkDir() {
+    [[ ! -d ${1} ]] && execCmd "mkdir -p ${1}"
+}
+
 function echoExec() {
     echo "[EXEC]    $1"
 }
@@ -24,4 +37,9 @@ function echoFake() {
 
 function echoInfo() {
     echo "$1"
+}
+
+function ErrExit() {
+    echo "[ERROR]   $1"
+    exit 1
 }

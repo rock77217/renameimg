@@ -1,37 +1,44 @@
 #!/bin/bash
 
 . ./bin/util.sh
-declare -r rootName=`basename ${0} | cut -d '.' -f 1`
-declare -r tmpDir=/tmp/${rootName}
+declare -r bashName=`basename ${0} | cut -d '.' -f 1`
+declare -r tmpDir=/tmp/${bashName}
 declare -r logFile=${tmpDir}/$(date +"%Y%m%d_%H%M%S").log
 declare -r nowDir=`pwd`
-declare -r cfgDryRun=true
-declare -r sourceDir="$1"
+declare cfgDryRun=false
 declare -r threads=1
 declare -r prefix="IMG_"
 declare -r fileDateFmt="%Y%m%d_%H%M%S"
 declare -r infoDateFmt="%m/%d/%Y %H:%M:%S"
-declare -r fileFormat="${prefix}${fileDateFmt}"
-#declare TZ="Asia/Tokyo"
+declare -r linuxTouchFmt="%Y%m%d%H%M.%S"
+declare -r nowOS=$(uname -s)
+declare -r linuxOS="Linux"
+declare -r macOS="Darwin"
+declare targetDir=""
 declare -a scanFiles
-cd "${sourceDir}"
-absSourceDir=""
+
+function init() {
+    chkDir "${tmpDir}"
+
+    if [[ "${nowOS}" != "${macOS}" ]] && [[ "${nowOS}" != "${linuxOS}" ]]; then
+        ErrExit "Not support ${nowOS}"
+    fi
+    
+    cd "${sourceDir}"
+}
+
+function usage() {
+    ErrExit "Usage: ./${bashName} -s source/path [-t target/path] [-z \"Time/Zone\"]"
+}
 
 function loadFiles() {
-    absSourceDir="$(cd "${1}" && pwd )"
-    echo "Scan ${absSourceDir}"
+    echo "Scan ${sourceDir}"
     oldIFS=$IFS
     IFS=$'\n'
-    scanFiles=(`find ${absSourceDir} -type f`)
+    scanFiles=(`find ${sourceDir} -type f | sort`)
     IFS=$oldIFS
 
-    if [[ -d ${tmpDir} ]]; then
-        rm -rf ${tmpDir}
-    fi
-    mkdir -p ${tmpDir}
-
     for file in "${scanFiles[@]}"; do
-
         analysisFile "${file}"
         
         #while [ "$(jobs -p | wc -l)" == "${threads}" ];
@@ -49,6 +56,7 @@ function analysisFile() {
     pureName=${fileName%.*}
     fileExt=${fileName##*.}
     filePath=`dirname "$1"`
+    relativePath=$(loadRelativePath "${sourceDir}" "${filePath}")
 
     cDate=`loadCreateTime "$1"`
     mDate=`loadModifyTime "$1"`
@@ -56,18 +64,26 @@ function analysisFile() {
 
     minDate=`getMinTimestamp ${cDate} ${mDate}`
     minDate=`getMinTimestamp ${minDate} ${fileDate}`
-    #echo "Compare timestamp: ${cDate}, ${mDate}, ${fileDate}"
+    #echo "Compare timestamp: $(timestamp2Date ${cDate} "${infoDateFmt}"), $(timestamp2Date ${mDate} "${infoDateFmt}"), $(timestamp2Date ${fileDate} "${infoDateFmt}")"
     #echo "Min timestamp: ${minDate}"
-    target="${filePath}/${prefix}$(timestamp2FileDate "${minDate}").${fileExt}"
+    if [[ "${targetDir}" != "" ]]; then
+        if [[ "${relativePath}" != "" ]]; then
+            target="${targetDir}${relativePath}/${prefix}$(timestamp2FileDate "${minDate}").${fileExt}"
+        else
+            target="${targetDir}/${prefix}$(timestamp2FileDate "${minDate}").${fileExt}"
+        fi
+    else
+        target="${filePath}/${prefix}$(timestamp2FileDate "${minDate}").${fileExt}"
+    fi
     
     fileInfo=$(file -b "${1}")
-    if [[ "${fileInfo}" =~ ^'JPEG ' ]]; then
+    isImg=$(echo "${fileInfo}" | grep "image data," | wc -l)
+    if (( ${isImg} > 0 )); then
         if [[ "${1}" != "${target}" ]]; then
             target=$(checkNotExistsPath "$1" "${target}")
             mvFile "${1}" "${target}"
         fi
-        [[ "${minDate}" != "${cDate}" ]] && touchCreateTime ${minDate} "${target}"
-        [[ "${minDate}" != "${mDate}" ]] && touchModifyTime ${minDate} "${target}"
+        reTouchTime "${cDate}" "${mDate}" "${minDate}" "${target}"
     elif [[ "${fileInfo}" =~ ^'ISO Media' ]]; then
         if $(isPressed "${1}"); then
             tmpPath=${filePath}/${pureName}_tmp.${fileExt}
@@ -75,10 +91,13 @@ function analysisFile() {
             mvFile "${1}" "${tmpPath}"
             target=$(checkNotExistsPath "$1" "${target}")
             pressMp4 "${tmpPath}" "${target}"
-            [[ "${minDate}" != "${cDate}" ]] && touchCreateTime ${minDate} "${target}"
-            [[ "${minDate}" != "${mDate}" ]] && touchModifyTime ${minDate} "${target}"
             rmFile "${tmpPath}"
+        elif [[ "${1}" != "${target}" ]]; then
+            target=$(checkNotExistsPath "$1" "${target}")
+            mvFile "${1}" "${target}"
         fi
+        [[ "${minDate}" != "${cDate}" ]] && touchCreateTime ${minDate} "${target}"
+        [[ "${minDate}" != "${mDate}" ]] && touchModifyTime ${minDate} "${target}"
     else
         echo "PASS"
     fi
@@ -86,27 +105,23 @@ function analysisFile() {
     echo ""
 }
 
-function mvFile() {
-    execCmd "mv '${1}' '${2}'"
-}
-
 function checkNotExistsPath() {
     renameCount=1
     sourcePath="${1}"
     sourceName=$(basename "${sourcePath}")
-    targetDir=$(dirname "${2}")
+    targetFolder=$(dirname "${2}")
     targetName=$(basename "${2}")
     result="${2}"
     while [ -f "${result}" ]; do
-        result="${targetDir}/${targetName%.*}_${renameCount}.${targetName##*.}"
+        result="${targetFolder}/${targetName%.*}_${renameCount}.${targetName##*.}"
         [[ "${sourcePath}" == "${result}" ]] && break
         ((renameCount++))
     done
     echo "${result}"
 }
 
-function rmFile() {
-    execCmd "rm '${1}'"
+function loadRelativePath() {
+    [[ "${1}" != "${2}" ]] && echo "${t1}" | sed "s~${t2}~~g" 2> /dev/null
 }
 
 function isPressed() {
@@ -115,16 +130,18 @@ function isPressed() {
 }
 
 function pressMp4() {
-    execCmd "ffmpeg -i '${1}' -codec:v libx264 -crf 21 -bf 2 -flags +cgop -pix_fmt yuv420p -codec:a aac -strict -2 -b:a 384k -r:a 48000 -movflags faststart '${2}'"
+    execCmd "ffmpeg -i '${1}' -c:v libx264 -preset slow -profile:v high -crf 18 -coder 1 -pix_fmt yuv420p -movflags +faststart -g 30 -bf 2 -c:a aac -b:a 384k -profile:a aac_low '${2}'"
 }
 
 function loadCreateTime() {
-    tmp=`GetFileInfo -d "${1}"`
+    [[ "${nowOS}" == "${macOS}" ]] && tmp=`GetFileInfo -d "${1}"`
+    [[ "${nowOS}" == "${linuxOS}" ]] && tmp=`stat "${1}" | grep Access | cut -c 9-`
     infoDate2Timestamp "${tmp}"
 }
 
 function loadModifyTime() {
-    tmp=`GetFileInfo -m "${1}"`
+    [[ "${nowOS}" == "${macOS}" ]] && tmp=`GetFileInfo -m "${1}"`
+    [[ "${nowOS}" == "${linuxOS}" ]] && tmp=`stat "${1}" | grep Modify | cut -c 9-`
     infoDate2Timestamp "${tmp}"
 }
 
@@ -134,26 +151,37 @@ function loadFileDate() {
 }
 
 function infoDate2Timestamp() {
-    date -j -f "${infoDateFmt}" "${1}" +%s 2> /dev/null
+    date2Timestamp "${1}" "${infoDateFmt}"
 }
 
 function fileDate2Timestamp() {
-    date -j -f "${fileDateFmt}" "${1}" +%s 2> /dev/null
+    date2Timestamp "${1}" "${fileDateFmt}"
+}
+
+function date2Timestamp() {
+    [[ "${nowOS}" == "${macOS}" ]] && date -j -f "${2}" "${1}" +%s 2> /dev/null
+    [[ "${nowOS}" == "${linuxOS}" ]] && date -d "${1}" +%s 2> /dev/null
 }
 
 function timestamp2InfoDate() {
-    if [[ "${TZ}" != "" ]]; then
-        TZ=${TZ} date -r ${1} +"${infoDateFmt}"
-    else
-        date -r ${1} +"${infoDateFmt}"
-    fi
+    timestamp2Date "${1}" "${infoDateFmt}"
 }
 
 function timestamp2FileDate() {
-    if [[ "${TZ}" != "" ]]; then
-        TZ=${TZ} date -r ${1} +"${fileDateFmt}"
+    timestamp2Date "${1}" "${fileDateFmt}"
+}
+
+function timestamp2TouchDate() {
+    timestamp2Date "${1}" "${linuxTouchFmt}"
+}
+
+function timestamp2Date() {
+    if [[ "${mTZ}" != "" ]]; then
+        [[ "${nowOS}" == "${macOS}" ]] && TZ=${mTZ} date -r ${1} +"${2}"
+        [[ "${nowOS}" == "${linuxOS}" ]] && TZ=${mTZ} date --date=@${1} +"${2}"
     else
-        date -r ${1} +"${fileDateFmt}"
+        [[ "${nowOS}" == "${macOS}" ]] && date -r ${1} +"${2}"
+        [[ "${nowOS}" == "${linuxOS}" ]] && date --date=@${1} +"${2}"
     fi
 }
 
@@ -162,17 +190,62 @@ function getMinTimestamp() {
     (( $1 >= $2 )) && echo "${2}" || echo "${1}"
 }
 
+function reTouchTime() {
+    #1 cDate
+    #2 mDate
+    #3 minDate
+    #4 target
+    if [[ "${1}" != "${3}" ]] || [[ "${mTZ}" != "" ]]; then
+        touchCreateTime ${3} "${4}"
+    fi
+    if [[ "${2}" != "${3}" ]] || [[ "${mTZ}" != "" ]]; then
+        touchModifyTime ${3} "${4}"
+    fi
+}
+
 function touchCreateTime() {
-    time=$(timestamp2InfoDate ${1})
-    execCmd "SetFile -d '${time}' '${2}'"
+    if [[ "${nowOS}" == "${macOS}" ]]; then
+        time=$(timestamp2InfoDate ${1})
+        execCmd "SetFile -d '${time}' '${2}'"
+    elif [[ "${nowOS}" == "${linuxOS}" ]]; then
+        time=$(timestamp2TouchDate ${1})
+        execCmd "touch -a -t ${time} '${2}'"
+    fi
+    
 }
 
 function touchModifyTime() {
-    time=$(timestamp2InfoDate ${1})
-    execCmd "SetFile -m '${time}' '${2}'"
+    if [[ "${nowOS}" == "${macOS}" ]]; then
+        time=$(timestamp2InfoDate ${1})
+        execCmd "SetFile -m '${time}' '${2}'"
+    elif [[ "${nowOS}" == "${linuxOS}" ]]; then
+        time=$(timestamp2TouchDate ${1})
+        execCmd "touch -m -t ${time} '${2}'"
+    fi
 }
 
-touch ${logFile}
-[[ "$2" != "" ]] && TZ="$2"
-loadFiles "${1}" | tee -i ${logFile}
+while getopts 'ds:t:z:' OPT; do
+    case ${OPT} in
+        d)
+            cfgDryRun=true
+            ;;
+        s)
+            [[ "${OPTARG}" != "" ]] && [[ ! -d ${OPTARG} ]] && ErrExit "Source ${OPTARG} is not exists."
+            declare -r sourceDir="$(cd "${OPTARG}" && pwd )"
+            ;;
+        t)
+            targetDir="${OPTARG}"
+            ;;
+        z)
+            declare mTZ="$OPTARG"
+            ;;
+        \?)
+            usage
+            ;;
+    esac
+done
+
+(( $# < 1 )) && usage
+init
+loadFiles
 cd ${nowDir}
