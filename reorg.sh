@@ -62,8 +62,12 @@ function analysisFile() {
     mDate=`loadModifyTime "$1"`
     fileDate=`loadFileDate ${pureName}`
 
-    minDate=`getMinTimestamp ${cDate} ${mDate}`
-    minDate=`getMinTimestamp ${minDate} ${fileDate}`
+    if [[ ${forceFileTime} ]]; then
+        minDate=${fileDate}
+    else
+        minDate=`getMinTimestamp ${cDate} ${mDate}`
+        minDate=`getMinTimestamp ${minDate} ${fileDate}`
+    fi
     #echo "Compare timestamp: $(timestamp2Date ${cDate} "${infoDateFmt}"), $(timestamp2Date ${mDate} "${infoDateFmt}"), $(timestamp2Date ${fileDate} "${infoDateFmt}")"
     #echo "Min timestamp: ${minDate}"
     if [[ "${targetDir}" != "" ]]; then
@@ -81,7 +85,7 @@ function analysisFile() {
     if (( ${isImg} > 0 )); then
         if [[ "${1}" != "${target}" ]]; then
             target=$(checkNotExistsPath "$1" "${target}")
-            mvFile "${1}" "${target}"
+            [[ "${1}" != "${target}" ]] && mvFile "${1}" "${target}"
         fi
         reTouchTime "${cDate}" "${mDate}" "${minDate}" "${target}"
     elif [[ "${fileInfo}" =~ ^'ISO Media' ]]; then
@@ -94,10 +98,9 @@ function analysisFile() {
             rmFile "${tmpPath}"
         elif [[ "${1}" != "${target}" ]]; then
             target=$(checkNotExistsPath "$1" "${target}")
-            mvFile "${1}" "${target}"
+            [[ "${1}" != "${target}" ]] && mvFile "${1}" "${target}"
         fi
-        [[ "${minDate}" != "${cDate}" ]] && touchCreateTime ${minDate} "${target}"
-        [[ "${minDate}" != "${mDate}" ]] && touchModifyTime ${minDate} "${target}"
+        reTouchTime "${cDate}" "${mDate}" "${minDate}" "${target}"
     else
         echo "PASS"
     fi
@@ -224,7 +227,7 @@ function touchModifyTime() {
     fi
 }
 
-while getopts 'ds:t:z:' OPT; do
+while getopts 'ds:t:z:f' OPT; do
     case ${OPT} in
         d)
             cfgDryRun=true
@@ -238,6 +241,9 @@ while getopts 'ds:t:z:' OPT; do
             ;;
         z)
             declare mTZ="$OPTARG"
+            ;;
+        f)
+            declare -r forceFileTime=true
             ;;
         \?)
             usage
