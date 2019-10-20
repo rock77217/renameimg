@@ -23,7 +23,7 @@ function init() {
     if [[ "${nowOS}" != "${macOS}" ]] && [[ "${nowOS}" != "${linuxOS}" ]]; then
         ErrExit "Not support ${nowOS}"
     fi
-    
+
     cd "${sourceDir}"
 }
 
@@ -95,12 +95,13 @@ function analysisFile() {
             mvFile "${1}" "${tmpPath}"
             target=$(checkNotExistsPath "$1" "${target}")
             pressMp4 "${tmpPath}" "${target}"
+            reTouchTime "${cDate}" "${mDate}" "${minDate}" "${target}"
             rmFile "${tmpPath}"
         elif [[ "${1}" != "${target}" ]]; then
             target=$(checkNotExistsPath "$1" "${target}")
             [[ "${1}" != "${target}" ]] && mvFile "${1}" "${target}"
+            reTouchTime "${cDate}" "${mDate}" "${minDate}" "${target}"
         fi
-        reTouchTime "${cDate}" "${mDate}" "${minDate}" "${target}"
     else
         echo "PASS"
     fi
@@ -129,7 +130,7 @@ function loadRelativePath() {
 
 function isPressed() {
     profile=$(ffprobe -v quiet -show_streams "${1}" | grep "profile=Baseline")
-    [[ "${profile}" != "" ]] && return 0 || return 1
+    [[ "${profile}" == "" ]] && return 0 || return 1
 }
 
 function pressMp4() {
