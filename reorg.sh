@@ -6,6 +6,7 @@ declare -r tmpDir=/tmp/${bashName}
 declare -r logFile=${tmpDir}/$(date +"%Y%m%d_%H%M%S").log
 declare -r nowDir=`pwd`
 declare cfgDryRun=false
+declare cfgJustRetouch=false
 declare -r threads=1
 declare -r prefix="IMG_"
 declare -r fileDateFmt="%Y%m%d_%H%M%S"
@@ -28,7 +29,7 @@ function init() {
 }
 
 function usage() {
-    ErrExit "Usage: ./${bashName} -s source/path [-t target/path] [-z \"Time/Zone\"]"
+    ErrExit "Usage: ./${bashName} -s source/path [-t target/path] [-z \"Time/Zone\"] [-d] [-r]"
 }
 
 function loadFiles() {
@@ -78,6 +79,11 @@ function analysisFile() {
         fi
     else
         target="${filePath}/${prefix}$(timestamp2FileDate "${minDate}").${fileExt}"
+    fi
+
+    if ${cfgJustRetouch}; then
+        reTouchTime "${cDate}" "${mDate}" "${minDate}" "${target}"
+        return
     fi
     
     fileInfo=$(file -b "${1}")
@@ -199,6 +205,7 @@ function reTouchTime() {
     #2 mDate
     #3 minDate
     #4 target
+    #echoInfo "Retouch: $1_$2_$3_$4"
     if [[ "${1}" != "${3}" ]] || [[ "${mTZ}" != "" ]]; then
         touchCreateTime ${3} "${4}"
     fi
@@ -228,10 +235,13 @@ function touchModifyTime() {
     fi
 }
 
-while getopts 'ds:t:z:f' OPT; do
+while getopts 'drs:t:z:f' OPT; do
     case ${OPT} in
         d)
             cfgDryRun=true
+            ;;
+        r)
+            cfgJustRetouch=true
             ;;
         s)
             [[ "${OPTARG}" != "" ]] && [[ ! -d ${OPTARG} ]] && ErrExit "Source ${OPTARG} is not exists."
