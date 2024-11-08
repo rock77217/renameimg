@@ -75,7 +75,8 @@ function loadCreateTime() {
     
     if [[ "${nowOS}" == "${macOS}" ]]; then
         # macOS 使用 GetFileInfo 來獲取創建時間
-        GetFileInfo -d "${filePath}"
+        local createTime=$(GetFileInfo -d "${filePath}")
+        date2Timestamp "${createTime}" "%m/%d/%Y %H:%M:%S"
     else
         # 優先嘗試獲取創建時間 (Birth)，如果無效則使用修改時間 (Modify)
         local cTime=$(stat -c %W "${filePath}" 2>/dev/null)
@@ -94,7 +95,8 @@ function loadModifyTime() {
     local filePath="$1"
     if [[ "${nowOS}" == "${macOS}" ]]; then
         # macOS 使用 GetFileInfo
-        GetFileInfo -m "${filePath}"
+        local modifyTime=$(GetFileInfo -m "${filePath}")
+        date2Timestamp "${modifyTime}" "%m/%d/%Y %H:%M:%S"
     else
         # Linux 使用 stat 取得修改時間
         stat -c %Y "${filePath}"
@@ -173,7 +175,7 @@ function touchCreateTime() {
     if [[ -n "${timestamp}" && "${timestamp}" =~ ^[0-9]+$ ]]; then
         if [[ "${nowOS}" == "Darwin" ]]; then
             # macOS 用法
-            local time=$(date -r "${timestamp}" +"${linuxTouchFmt}")
+            local time=$(date -r "${timestamp}" +"${infoDateFmt}")
             execCmd "SetFile -d '${time}' '${filePath}'"
         else
             # Linux 用法
@@ -193,8 +195,8 @@ function touchModifyTime() {
     if [[ -n "${timestamp}" && "${timestamp}" =~ ^[0-9]+$ ]]; then
         if [[ "${nowOS}" == "Darwin" ]]; then
             # macOS 用法
-            local time=$(date -r "${timestamp}" +"${linuxTouchFmt}")
-            execCmd "touch -m -t ${time} '${filePath}'"
+            local time=$(date -r "${timestamp}" +"${infoDateFmt}")
+            execCmd "SetFile -m '${time}' '${filePath}'"
         else
             # Linux 用法
             local time=$(date -d "@${timestamp}" +"${linuxTouchFmt}")
