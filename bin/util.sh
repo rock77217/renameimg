@@ -73,7 +73,7 @@ function ErrExit() {
 function loadCreateTime() {
     local filePath="$1"
     
-    if [[ "${nowOS}" == "Darwin" ]]; then
+    if [[ "${nowOS}" == "${macOS}" ]]; then
         # macOS 使用 GetFileInfo 來獲取創建時間
         GetFileInfo -d "${filePath}"
     else
@@ -92,7 +92,7 @@ function loadCreateTime() {
 # 取得檔案修改時間
 function loadModifyTime() {
     local filePath="$1"
-    if [[ "${nowOS}" == "Darwin" ]]; then
+    if [[ "${nowOS}" == "${macOS}" ]]; then
         # macOS 使用 GetFileInfo
         GetFileInfo -m "${filePath}"
     else
@@ -156,7 +156,13 @@ function timestamp2FileDate() {
         echo "[ERROR] Invalid timestamp for timestamp2FileDate: $timestamp" >&2
         return 1
     fi
-    date -d "@${timestamp}" +"${fileDateFmt}"
+    if [[ "${nowOS}" == "Darwin" ]]; then
+        # macOS 用法
+        date -r "${timestamp}" +"${fileDateFmt}"
+    else
+        # Linux 用法
+        date -d "@${timestamp}" +"${fileDateFmt}"
+    fi
 }
 
 # 設置檔案的創建時間
@@ -165,8 +171,15 @@ function touchCreateTime() {
     local filePath="$2"
 
     if [[ -n "${timestamp}" && "${timestamp}" =~ ^[0-9]+$ ]]; then
-        local time=$(date -d "@${timestamp}" +"${linuxTouchFmt}")
-        execCmd "touch -a -t ${time} '${filePath}'"
+        if [[ "${nowOS}" == "Darwin" ]]; then
+            # macOS 用法
+            local time=$(date -r "${timestamp}" +"${linuxTouchFmt}")
+            execCmd "SetFile -d '${time}' '${filePath}'"
+        else
+            # Linux 用法
+            local time=$(date -d "@${timestamp}" +"${linuxTouchFmt}")
+            execCmd "touch -a -t ${time} '${filePath}'"
+        fi
     else
         echo "[WARNING] Invalid timestamp in touchCreateTime for file ${filePath}. Skipping." >&2
     fi
@@ -178,8 +191,15 @@ function touchModifyTime() {
     local filePath="$2"
 
     if [[ -n "${timestamp}" && "${timestamp}" =~ ^[0-9]+$ ]]; then
-        local time=$(date -d "@${timestamp}" +"${linuxTouchFmt}")
-        execCmd "touch -m -t ${time} '${filePath}'"
+        if [[ "${nowOS}" == "Darwin" ]]; then
+            # macOS 用法
+            local time=$(date -r "${timestamp}" +"${linuxTouchFmt}")
+            execCmd "touch -m -t ${time} '${filePath}'"
+        else
+            # Linux 用法
+            local time=$(date -d "@${timestamp}" +"${linuxTouchFmt}")
+            execCmd "touch -m -t ${time} '${filePath}'"
+        fi
     else
         echo "[WARNING] Invalid timestamp in touchModifyTime for file ${filePath}. Skipping." >&2
     fi
