@@ -110,14 +110,14 @@ function analysisFile() {
     fi
 
     # 構建目標文件路徑
-    if [[ -n "${targetDir}" ]]; then
-        if [[ -n "${relativePath}" ]]; then
-            target="${targetDir}${relativePath}/${prefix}${timestampFileDate}.${fileExt}"
+    if [[ "${targetDir}" != "" ]]; then
+        if [[ "${relativePath}" != "" ]]; then
+            target="${targetDir}${relativePath}/${prefix}${timestampFileDate}.mp4"
         else
-            target="${targetDir}/${prefix}${timestampFileDate}.${fileExt}"
+            target="${targetDir}/${prefix}${timestampFileDate}.mp4"
         fi
     else
-        target="${filePath}/${prefix}${timestampFileDate}.${fileExt}"
+        target="${filePath}/${prefix}${timestampFileDate}.mp4"
     fi
 
     if ${cfgJustRetouch}; then
@@ -175,7 +175,8 @@ function isProcessed() {
 }
 
 function pressMp4() {
-    execCmd "ffmpeg -i '${1}' -c:v libx264 -preset slow -profile:v high -crf 18 -coder 1 -pix_fmt yuv420p -movflags +faststart -g 30 -bf 2 -c:a aac -b:a 384k -profile:a aac_low '${2}'"
+    # execCmd "ffmpeg -i '${1}' -c:v libx264 -preset slow -profile:v high -crf 18 -coder 1 -pix_fmt yuv420p -movflags +faststart -g 30 -bf 2 -c:a aac -b:a 384k -profile:a aac_low '${2}'"
+    execCmd "ffmpeg -i "${1}" -c:v libx264 -preset medium -profile:v high -crf 22 -pix_fmt yuv420p -movflags +faststart -g 30 -bf 2 -c:a aac -b:a 192k "${2}""
 }
 
 # 以下略過其他函數因為大致保持不變
