@@ -176,7 +176,8 @@ function isProcessed() {
 
 function pressMp4() {
     # execCmd "ffmpeg -i '${1}' -c:v libx264 -preset slow -profile:v high -crf 18 -coder 1 -pix_fmt yuv420p -movflags +faststart -g 30 -bf 2 -c:a aac -b:a 384k -profile:a aac_low '${2}'"
-    execCmd "ffmpeg -i '${1}' -c:v libx264 -preset slow -profile:v high -crf 30 -coder 1 -pix_fmt yuv420p -movflags +faststart -g 30 -bf 2 -c:a aac -b:a 128k -profile:a aac_low '${2}'"
+    # execCmd "ffmpeg -i '${1}' -c:v libx264 -preset slow -profile:v high -crf 30 -coder 1 -pix_fmt yuv420p -movflags +faststart -g 30 -bf 2 -c:a aac -b:a 128k -profile:a aac_low '${2}'"
+    execCmd "ffmpeg -i '${1}' -c:v libx264 -preset slow -profile:v high -crf 28 -coder 1 -pix_fmt yuv420p -movflags +faststart -g 30 -bf 2 -c:a aac -b:a 128k -profile:a aac_low -err_detect ignore_err '${2}'    "
 }
 
 # 以下略過其他函數因為大致保持不變
