@@ -28,6 +28,9 @@ declare -r FFMPEG_MEMORY_LIMIT_MB=2048  # FFmpeg最大使用2GB記憶體
 # 檢查必要的工具是否安裝
 command -v ffmpeg >/dev/null 2>&1 || { echo >&2 "ffmpeg is not installed. Aborting."; exit 1; }
 command -v ffprobe >/dev/null 2>&1 || { echo >&2 "ffprobe is not installed. Aborting."; exit 1; }
+command -v awk >/dev/null 2>&1 || { echo >&2 "需要 awk 但未安裝。"; exit 1; }
+command -v sed >/dev/null 2>&1 || { echo >&2 "需要 sed 但未安裝。"; exit 1; }
+command -v free >/dev/null 2>&1 || { echo >&2 "需要 free 但未安裝。"; exit 1; }
 
 function init() {
     # 檢查並創建臨時目錄
@@ -52,26 +55,12 @@ function usage() {
     exit 1
 }
 
-# 修改後的 loadFiles 函數
 function loadFiles() {
     echo "Scanning ${sourceDir} for video files..."
     oldIFS=$IFS
     IFS=$'\n'
     scanFiles=($(find "${sourceDir}" -type f \( -iname "*.mp4" -o -iname "*.mov" -o -iname "*.avi" -o -iname "*.mkv" -o -iname "*.mts" -o -iname "*.m4v" \) | sort))
     IFS=$oldIFS
-
-    # 估算所需空間
-    local total_size=0
-    for file in "${scanFiles[@]}"; do
-        total_size=$((total_size + $(stat -f %z "$file")))
-    done
-    
-    local available_space=$(df -k "${targetDir:-${sourceDir}}" | awk 'NR==2 {print $4}')
-    if [ $((total_size * 2)) -gt $((available_space * 1024)) ]; then
-        echo "Warning: Insufficient disk space for processing all files"
-        echo "Required: $((total_size * 2 / 1024 / 1024))MB, Available: $((available_space / 1024))MB"
-        exit 1
-    fi
 
     for file in "${scanFiles[@]}"; do
         analysisFile "${file}"
@@ -193,21 +182,24 @@ function isProcessed() {
     fi
 }
 
-# 系統資源監控函數
 function check_system_resources() {
     # 檢查系統負載
     local load_average=$(cat /proc/loadavg | awk '{print $1}')
-    if (( $(echo "$load_average > $MAX_LOAD_AVERAGE" | bc -l) )); then
-        echo "System load too high ($load_average). Waiting..."
+    # 將系統負載和最大負載值轉換為整數進行比較（乘以100去除小數點）
+    local load_int=$(echo $load_average | awk '{printf "%.0f", $1 * 100}')
+    local max_load_int=$(echo $MAX_LOAD_AVERAGE | awk '{printf "%.0f", $1 * 100}')
+    
+    if [ $load_int -gt $max_load_int ]; then
+        echo "系統負載過高 ($load_average)，等待中..."
         return 1
-    }
+    fi
 
     # 檢查可用記憶體
     local free_memory_mb=$(free -m | awk '/^Mem:/ {print $7}')
     if [ $free_memory_mb -lt $MIN_FREE_MEMORY_MB ]; then
-        echo "Not enough free memory ($free_memory_mb MB). Waiting..."
+        echo "可用記憶體不足 ($free_memory_mb MB)，等待中..."
         return 1
-    }
+    fi
 
     return 0
 }
@@ -219,7 +211,7 @@ function pressMp4() {
 
     execCmd "ffmpeg -i '${1}' \
         -c:v libx264 \
-        -preset slower \
+        -preset slow \
         -profile:v high \
         -crf 30 \
         -threads 2 \
