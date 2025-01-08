@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# 引入外部工具函數（如果有必要）
 . ./bin/util.sh
 
 declare -r bashName=$(basename "${0}" | cut -d '.' -f 1)
@@ -9,6 +8,7 @@ declare -r logFile=${tmpDir}/$(date +"%Y%m%d_%H%M%S").log
 declare -r nowDir=$(pwd)
 declare cfgDryRun=false
 declare cfgJustRetouch=false
+declare cfgSkipRename=false  # 新增：跳過重命名的選項
 declare -r threads=1
 declare -r prefix="IMG_"
 declare -r fileDateFmt="%Y%m%d_%H%M%S"
@@ -24,6 +24,7 @@ declare -a scanFiles
 declare -r MAX_LOAD_AVERAGE=2.0
 declare -r MIN_FREE_MEMORY_MB=1024  # 保留1GB空閒記憶體
 declare -r FFMPEG_MEMORY_LIMIT_MB=2048  # FFmpeg最大使用2GB記憶體
+declare -r MAX_RETRY=3  # 新增：最大重試次數
 
 # 檢查必要的工具是否安裝
 command -v ffmpeg >/dev/null 2>&1 || { echo >&2 "ffmpeg is not installed. Aborting."; exit 1; }
@@ -51,7 +52,11 @@ function init() {
 }
 
 function usage() {
-    echo "Usage: ./${bashName} -s source/path [-t target/path] [-z \"Time/Zone\"] [-d] [-r]"
+    echo "Usage: ./${bashName} -s source/path [-t target/path] [-z \"Time/Zone\"] [-d] [-r] [-n] [-f]"
+    echo "  -d: Dry run"
+    echo "  -r: Just retouch timestamps"
+    echo "  -n: Skip rename (use original filename)"
+    echo "  -f: Force use file time"
     exit 1
 }
 
@@ -111,21 +116,33 @@ function analysisFile() {
         minDate=$(date +%s)
     fi
 
-    timestampFileDate=$(timestamp2FileDate "${minDate}")
-    if [[ $? -ne 0 ]]; then
-        echo "[ERROR] Failed to convert timestamp to file date for $1" >&2
-        return 1
-    fi
-
-    # 構建目標文件路徑
-    if [[ "${targetDir}" != "" ]]; then
-        if [[ "${relativePath}" != "" ]]; then
-            target="${targetDir}${relativePath}/${prefix}${timestampFileDate}.mp4"
+    # 根據是否跳過重命名來決定目標文件路徑
+    if ${cfgSkipRename}; then
+        if [[ "${targetDir}" != "" ]]; then
+            if [[ "${relativePath}" != "" ]]; then
+                target="${targetDir}${relativePath}/${pureName}.mp4"
+            else
+                target="${targetDir}/${pureName}.mp4"
+            fi
         else
-            target="${targetDir}/${prefix}${timestampFileDate}.mp4"
+            target="${filePath}/${pureName}.mp4"
         fi
     else
-        target="${filePath}/${prefix}${timestampFileDate}.mp4"
+        timestampFileDate=$(timestamp2FileDate "${minDate}")
+        if [[ $? -ne 0 ]]; then
+            echo "[ERROR] Failed to convert timestamp to file date for $1" >&2
+            return 1
+        fi
+
+        if [[ "${targetDir}" != "" ]]; then
+            if [[ "${relativePath}" != "" ]]; then
+                target="${targetDir}${relativePath}/${prefix}${timestampFileDate}.mp4"
+            else
+                target="${targetDir}/${prefix}${timestampFileDate}.mp4"
+            fi
+        else
+            target="${filePath}/${prefix}${timestampFileDate}.mp4"
+        fi
     fi
 
     if ${cfgJustRetouch}; then
@@ -145,9 +162,31 @@ function analysisFile() {
         tmpPath=$(checkNotExistsPath "$1" "${tmpPath}")
         mvFile "${1}" "${tmpPath}"
         target=$(checkNotExistsPath "$1" "${target}")
-        pressMp4 "${tmpPath}" "${target}"
-        reTouchTime "${cDate}" "${mDate}" "${minDate}" "${target}"
-        rmFile "${tmpPath}"
+        
+        # 添加重試邏輯
+        local retry_count=0
+        local success=false
+        
+        while [[ ${retry_count} -lt ${MAX_RETRY} && ${success} == false ]]; do
+            if process_with_resource_check "${tmpPath}" "${target}"; then
+                success=true
+            else
+                ((retry_count++))
+                echo "FFmpeg failed. Attempt ${retry_count} of ${MAX_RETRY}"
+                rm -f "${target}"  # 清除失敗的輸出檔
+                if [[ ${retry_count} -eq ${MAX_RETRY} ]]; then
+                    echo "[ERROR] Failed to process file after ${MAX_RETRY} attempts: ${1}"
+                    mvFile "${tmpPath}" "${1}"  # 還原原始檔
+                    return 1
+                fi
+                sleep 1  # 短暫延遲後重試
+            fi
+        done
+        
+        if [[ ${success} == true ]]; then
+            reTouchTime "${cDate}" "${mDate}" "${minDate}" "${target}"
+            rmFile "${tmpPath}"
+        fi
     fi
 }
 
@@ -204,18 +243,27 @@ function check_system_resources() {
     return 0
 }
 
-function pressMp4() {
+function process_with_resource_check() {
+    local input_file="$1"
+    local output_file="$2"
+    
     while ! check_system_resources; do
         sleep 30
     done
 
+    pressMp4 "${input_file}" "${output_file}"
+    return $?
+}
+
+function pressMp4() {
     execCmd "ffmpeg -i '${1}' \
         -c:v libx264 \
         -preset slow \
         -profile:v high \
         -crf 30 \
         -threads 2 \
-        -memory_limit ${FFMPEG_MEMORY_LIMIT_MB}M \
+        -bufsize 8M \
+        -maxrate 8M \
         -coder 1 \
         -pix_fmt yuv420p \
         -movflags +faststart \
@@ -226,11 +274,10 @@ function pressMp4() {
         -profile:a aac_low \
         -err_detect ignore_err \
         '${2}'"
+    return $?
 }
 
-# 以下略過其他函數因為大致保持不變
-
-while getopts 'drs:t:z:f' OPT; do
+while getopts 'drs:t:z:fn' OPT; do
     case ${OPT} in
         d)
             cfgDryRun=true
@@ -250,6 +297,9 @@ while getopts 'drs:t:z:f' OPT; do
             ;;
         f)
             declare -r forceFileTime=true
+            ;;
+        n)
+            cfgSkipRename=true  # 新增跳過重命名的選項
             ;;
         \?)
             usage
