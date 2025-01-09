@@ -6,14 +6,16 @@ declare -r rootDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 function execCmd() {
     if ${cfgDryRun}; then
         echoFake "${1}"
+        return 0
     else
         echoExec "${1}"
         eval "$1"
         local rt=$?
         if [[ ${rt} != 0 ]]; then
             echo "[ERROR] Command failed with exit code ${rt}: ${1}"
-            exit ${rt}
+            return ${rt}  # 改為 return 而不是 exit
         fi
+        return 0
     fi
 }
 
