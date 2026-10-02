@@ -1,0 +1,17 @@
+# 用法：docker compose run --rm renameimg run /photos -n
+services:
+  renameimg:
+    build: .
+    image: renameimg
+    # 改成 NAS 上照片檔案的擁有者 UID:GID，避免新檔案變成 root 所有
+    user: "1000:1000"
+    # 讓 docker stop 的 SIGTERM 正確送到程式，寫出報告後才結束
+    init: true
+    stop_grace_period: 2m
+    volumes:
+      # 照片所在位置（TrueNAS 的 dataset、或 NFS/SMB 掛載點）
+      - /mnt/photos:/photos
+      # CSV 報告
+      - ./reports:/reports
+      # 轉檔暫存：放在小電腦本機的 SSD，空間至少要能放下最大的一支輸出影片
+      - ./work:/work

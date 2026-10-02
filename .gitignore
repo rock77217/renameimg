@@ -1,2 +1,6 @@
 nohup.out
 .DS_Store
+.venv/
+__pycache__/
+.pytest_cache/
+renameimg-report-*.csv
